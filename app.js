@@ -1,10 +1,12 @@
 //const contract_name = "test";
 const config = require('./config.json');
+//const fs = require('fs');
 const http = require('http');
 const exec = require('child_process').exec;
 const fileUpload = require('express-fileupload');
 const express = require('express');
 const app = express();
+const mkdirp = require('mkdirp');
 
 
 // config server
@@ -29,35 +31,31 @@ app.post('/upload', function (req, res) {
         //return res.status(500).send("file type error!");
     }
     let contractName = sourceFileName[0];
+    let contractsDir = __dirname + '/contracts/' + contractName;
 
-    // Use the mv() method to place the file somewhere on your server
-    sourceFile.mv(__dirname + '/uploads/' + sourceFile.name, function (err) {
+    mkdirp(contractsDir, (err) => {
         if (err) {
             return res.status(500).send(err);
         }
-        compile(contractName).then(stdout => {
-            console.log(stdout);
-            res.send('File comopiled!');
-        });
+        sourceFile.mv(contractsDir + '/' + sourceFile.name)
+            .then(res => {
+                let path = contractsDir + '/';
+                let compileCmd = "eosiocpp -o " + path + contractName + ".wast " + path + contractName + ".cpp";
+                return execfunc(compileCmd);
+            }, err => {
+                res.status(500).send(err);
+            }).then(stdout => {
+                console.log(stdout);
+                res.send('File comopiled!');
+            }, err => {
+                res.status(500).send(err);
+            });
     });
 });
 
-function genabi(contract) {
-    let genabiCmd = "eosiocpp -g " + contract + ".abi " + contract + ".cpp";
+function execfunc(cmd) {
     return new Promise((resolve, reject) => {
-        exec(genabiCmd, function (error, stdout, stderr) {
-            if (error) {
-                reject(stderr);
-            }
-            resolve(stdout);
-        });
-    });
-}
-
-function compile(contract) {
-    let compileCmd = "cd uploads;eosiocpp -o " + contract + ".wast " + contract + ".cpp";
-    return new Promise((resolve, reject) => {
-        exec(compileCmd, function (error, stdout, stderr) {
+        exec(cmd, function (error, stdout, stderr) {
             if (error) {
                 reject(stderr);
             }

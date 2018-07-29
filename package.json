@@ -18,6 +18,7 @@
   "homepage": "https://github.com/EOSeco-team/eos-opensource-platform#readme",
   "dependencies": {
     "express": "^4.16.3",
-    "express-fileupload": "^0.4.0"
+    "express-fileupload": "^0.4.0",
+    "mkdirp": "^0.5.1"
   }
 }

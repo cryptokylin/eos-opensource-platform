@@ -1,0 +1,23 @@
+{
+  "name": "eos-opensource-platform",
+  "version": "1.0.0",
+  "description": "- validate source code and onchain code - help opensource dapp to delopy - more...",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EOSeco-team/eos-opensource-platform.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/EOSeco-team/eos-opensource-platform/issues"
+  },
+  "homepage": "https://github.com/EOSeco-team/eos-opensource-platform#readme",
+  "dependencies": {
+    "express": "^4.16.3",
+    "express-fileupload": "^0.4.0"
+  }
+}

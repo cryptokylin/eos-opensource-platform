@@ -1,13 +1,13 @@
-//const contract_name = "test";
 const config = require('./config.json');
-//const fs = require('fs');
+const fs = require('fs');
 const http = require('http');
 const exec = require('child_process').exec;
 const fileUpload = require('express-fileupload');
 const express = require('express');
 const app = express();
 const mkdirp = require('mkdirp');
-
+const extract = require('extract-zip');
+const crypto = require('crypto');
 
 // config server
 var server = http.createServer(app).listen(config.server.port, function () { });
@@ -17,20 +17,25 @@ server.timeout = 240000;
 app.use(fileUpload());
 
 app.post('/upload', function (req, res) {
-    if (!req.files)
+    if (!req.files) {
         return res.status(400).send('No files were uploaded.');
+    }
 
-    // The name of the input field (i.e. "sampleFile") is used to retrieve the uploaded file
     let sourceFile = req.files.sourceFile;
     let sourceFileName = sourceFile.name.split(".");
-    if (sourceFileName.length > 2) {
+    if (sourceFileName.length < 2) {
         return res.status(500).send("file name error!");
     }
-    let type = sourceFileName[1];
-    if (type != "cpp") {
-        //return res.status(500).send("file type error!");
+    let type = sourceFileName[sourceFileName.length - 1];
+    //support upload single cpp file or project in zip
+    if (type != "cpp" && type != 'zip') {
+        return res.status(500).send("file type error!");
     }
     let contractName = sourceFileName[0];
+    for (let i = 1; i < sourceFileName.length - 1; i++) {
+        contractName = contractName + '.' + sourceFileName[i];
+    }
+
     let contractsDir = __dirname + '/contracts/' + contractName;
 
     mkdirp(contractsDir, (err) => {
@@ -38,17 +43,38 @@ app.post('/upload', function (req, res) {
             return res.status(500).send(err);
         }
         sourceFile.mv(contractsDir + '/' + sourceFile.name)
-            .then(res => {
-                let path = contractsDir + '/';
-                let compileCmd = "eosiocpp -o " + path + contractName + ".wast " + path + contractName + ".cpp";
-                return execfunc(compileCmd);
+            .then(() => {
+                if (type == "cpp") {
+                    let path = contractsDir + '/';
+                    let compileCmd = "eosiocpp -o " + path + contractName + ".wast " + path + contractName + ".cpp";
+                    return execfunc(compileCmd);
+                } else {
+                    //type = zip
+                    //extract zip 
+                    return new Promise((resolve, reject) => {
+                        extract(contractsDir + '/' + sourceFile.name, { dir: contractsDir }, function (err) {
+                            // extraction is complete. make sure to handle the err
+                            if (err) {
+                                reject(err);
+                            }
+                            resolve();
+                        })
+                    }).then(() => {
+                        let path = contractsDir + '/';
+                        let compileCmd = "eosiocpp -o " + path + contractName + ".wast " + path + contractName + ".cpp";
+                        return execfunc(compileCmd);
+                    })
+                }
             }, err => {
                 res.status(500).send(err);
             }).then(stdout => {
                 console.log(stdout);
-                res.send('File comopiled!');
+                //shasum 
+                return getHash(contractsDir + "/" + contractName + ".wasm");
             }, err => {
                 res.status(500).send(err);
+            }).then(hash => {
+                res.send('Contract code hash:' + hash);
             });
     });
 });
@@ -60,6 +86,21 @@ function execfunc(cmd) {
                 reject(stderr);
             }
             resolve(stdout);
+        });
+    });
+}
+
+function getHash(file) {
+    return new Promise((resolve, reject) => {
+        let algo = 'sha256';
+        let shasum = crypto.createHash(algo);
+
+        let s = fs.ReadStream(file);
+        s.on('data', function (d) { shasum.update(d); });
+        s.on('end', function () {
+            let d = shasum.digest('hex');
+            console.log(d);
+            resolve(d);
         });
     });
 }

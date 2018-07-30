@@ -106,8 +106,9 @@ function getHash(file) {
 
 function getCmd(path, name) {
     if (config.compiler.dockerFlag) {
-        return "docker exec " + config.compiler.image + ":" + config.compiler.version
-            + " eosiocpp -o " + path + '/' + name + ".wast " + path + '/' + name + ".cpp";
+        let dir = "/opt/contracts/" + name + '/';
+        return "docker exec " + config.compiler.container + "-" + config.compiler.version
+            + " eosiocpp -o " + dir + name + ".wast " + dir + name + ".cpp";
     } else {
         return "eosiocpp -o " + path + '/' + name + ".wast " + path + '/' + name + ".cpp";
     }

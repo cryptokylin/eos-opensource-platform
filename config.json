@@ -5,6 +5,7 @@
     "compiler": {
         "image": "eosio/eos-dev",
         "version": "v1.1.1",
+        "container": "eos-dev",
         "dockerFlag": true
     }
 }

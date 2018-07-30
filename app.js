@@ -42,11 +42,11 @@ app.post('/upload', function (req, res) {
         if (err) {
             return res.status(500).send(err);
         }
+        //move upload file to a dir
         sourceFile.mv(contractsDir + '/' + sourceFile.name)
             .then(() => {
                 if (type == "cpp") {
-                    let path = contractsDir + '/';
-                    let compileCmd = "eosiocpp -o " + path + contractName + ".wast " + path + contractName + ".cpp";
+                    let compileCmd = getCmd(contractsDir, contractName);
                     return execfunc(compileCmd);
                 } else {
                     //type = zip
@@ -60,8 +60,7 @@ app.post('/upload', function (req, res) {
                             resolve();
                         })
                     }).then(() => {
-                        let path = contractsDir + '/';
-                        let compileCmd = "eosiocpp -o " + path + contractName + ".wast " + path + contractName + ".cpp";
+                        let compileCmd = getCmd(contractsDir, contractName);
                         return execfunc(compileCmd);
                     })
                 }
@@ -103,4 +102,13 @@ function getHash(file) {
             resolve(d);
         });
     });
+}
+
+function getCmd(path, name) {
+    if (config.compiler.dockerFlag) {
+        return "docker exec " + config.compiler.image + ":" + config.compiler.version
+            + " eosiocpp -o " + path + '/' + name + ".wast " + path + '/' + name + ".cpp";
+    } else {
+        return "eosiocpp -o " + path + '/' + name + ".wast " + path + '/' + name + ".cpp";
+    }
 }

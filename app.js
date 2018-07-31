@@ -9,6 +9,22 @@ const mkdirp = require('mkdirp');
 const extract = require('extract-zip');
 const crypto = require('crypto');
 const rimraf = require('rimraf');
+const jsondiff = require('deep-diff').diff;
+const mongo = require('mongodb');
+const Grid = require('gridfs-stream');
+
+
+// create or use an existing mongodb-native db instance
+//var db = new mongo.Db('test', new mongo.Server(config.mongodb.server, config.mongodb.port));
+var db, gfs;
+mongo.MongoClient.connect(config.mongodb.url, { useNewUrlParser: true }, function (err, database) {
+    if (err) {
+        logger.error("mongodb error", err);
+    }
+    db = database.db(config.mongodb.dbName);
+    gfs = Grid(db, mongo);
+});
+
 
 // config server
 var server = http.createServer(app).listen(config.server.port, function () { });
@@ -20,6 +36,21 @@ app.use(fileUpload());
 app.post('/upload', function (req, res) {
     if (!req.files) {
         return res.status(400).send('No files were uploaded.');
+    }
+
+    let _abi = null;
+    if (req.body.abi) {
+        _abi = JSON.parse(req.body.abi);
+    }
+
+    let _hash = null;
+    if (req.body.hash) {
+        _hash = req.body.hash;
+    }
+
+    let _account = null;
+    if (req.body.account) {
+        _account = req.body.account;
     }
 
     let sourceFile = req.files.sourceFile;
@@ -62,7 +93,12 @@ app.post('/upload', function (req, res) {
                                 if (err) {
                                     reject(err);
                                 }
-                                resolve();
+                                fs.unlink(contractsDir + '/' + sourceFile.name, (err) => {
+                                    if (err) {
+                                        reject(err);
+                                    }
+                                    resolve();
+                                });
                             })
                         }).then(() => {
                             let compileCmd = getCmd(contractsDir, contractName);
@@ -88,16 +124,59 @@ app.post('/upload', function (req, res) {
                 }, err => {
                     res.status(500).send(err);
                 }).then(hash => {
+                    fs.unlinkSync(contractsDir + "/" + contractName + ".wasm");
+                    fs.unlinkSync(contractsDir + "/" + contractName + ".wast");
                     fs.readFile(contractsDir + "/" + contractName + ".abi", (err, data) => {
                         if (err || !data) {
                             return res.status(500).send(err + "\nabi is null!");
                         }
                         let abi = JSON.parse(data.toString());
                         let obj = {
-                            codeHash: hash,
-                            abi: abi
+                            codeHash: hash
                         }
-                        res.json(obj);
+                        if (_hash) {
+                            obj.hashMatch = (_hash == hash);
+                        }
+                        if (_abi) {
+                            obj.abiDiff = jsondiff(_abi, abi);
+                        } else {
+                            obj.abi = abi;
+                        }
+                        //if input eos account , save the contract
+                        if (_account) {
+                            fs.readdir(contractsDir, (err, files) => {
+                                if (err) {
+                                    res.status(500).send(err);
+                                }
+                                files.forEach(file => {
+                                    let writestream = gfs.createWriteStream({
+                                        filename: file,
+                                        metadata: {
+                                            contractAccount: _account
+                                        }
+                                    });
+                                    fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
+                                });
+
+                                let object = {
+                                    account: _account,
+                                    files: files,
+                                    version: config.compiler.version,
+                                    hash: hash,
+                                    timestamp: new Date()
+                                }
+                                let collection = db.collection("contracts");
+                                collection.insertOne(object, function (err, result) {
+                                    if (err) {
+                                        res.status(500).send(err);
+                                    } else {
+                                        res.json(obj);
+                                    }
+                                });
+                            });
+                        } else {
+                            res.json(obj);
+                        }
                     });
                 });
         });

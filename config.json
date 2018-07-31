@@ -7,5 +7,9 @@
         "version": "v1.1.1",
         "container": "eos-dev",
         "dockerFlag": true
+    },
+    "mongodb": {
+        "url": "mongodb://localhost:27017",
+        "dbName": "contracts"
     }
 }

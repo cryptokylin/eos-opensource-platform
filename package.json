@@ -17,10 +17,13 @@
   },
   "homepage": "https://github.com/EOSeco-team/eos-opensource-platform#readme",
   "dependencies": {
+    "deep-diff": "^1.0.1",
     "express": "^4.16.3",
     "express-fileupload": "^0.4.0",
     "extract-zip": "^1.6.7",
+    "gridfs-stream": "^1.1.1",
     "mkdirp": "^0.5.1",
+    "mongodb": "^3.1.1",
     "rimraf": "^2.6.2"
   }
 }

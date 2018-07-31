@@ -8,6 +8,7 @@ const app = express();
 const mkdirp = require('mkdirp');
 const extract = require('extract-zip');
 const crypto = require('crypto');
+const rimraf = require('rimraf');
 
 // config server
 var server = http.createServer(app).listen(config.server.port, function () { });
@@ -38,44 +39,70 @@ app.post('/upload', function (req, res) {
 
     let contractsDir = __dirname + '/contracts/' + contractName;
 
-    mkdirp(contractsDir, (err) => {
+    rimraf(contractsDir, (err) => {
         if (err) {
             return res.status(500).send(err);
         }
-        //move upload file to a dir
-        sourceFile.mv(contractsDir + '/' + sourceFile.name)
-            .then(() => {
-                if (type == "cpp") {
-                    let compileCmd = getCmd(contractsDir, contractName);
-                    return execfunc(compileCmd);
-                } else {
-                    //type = zip
-                    //extract zip 
-                    return new Promise((resolve, reject) => {
-                        extract(contractsDir + '/' + sourceFile.name, { dir: contractsDir }, function (err) {
-                            // extraction is complete. make sure to handle the err
-                            if (err) {
-                                reject(err);
-                            }
-                            resolve();
-                        })
-                    }).then(() => {
+        mkdirp(contractsDir, (err) => {
+            if (err) {
+                return res.status(500).send(err);
+            }
+            //move upload file to a dir
+            sourceFile.mv(contractsDir + '/' + sourceFile.name)
+                .then(() => {
+                    if (type == "cpp") {
                         let compileCmd = getCmd(contractsDir, contractName);
                         return execfunc(compileCmd);
-                    })
-                }
-            }, err => {
-                res.status(500).send(err);
-            }).then(stdout => {
-                console.log(stdout);
-                //shasum 
-                return getHash(contractsDir + "/" + contractName + ".wasm");
-            }, err => {
-                res.status(500).send(err);
-            }).then(hash => {
-                res.send('Contract code hash:' + hash);
-            });
+                    } else {
+                        //type = zip
+                        //extract zip 
+                        return new Promise((resolve, reject) => {
+                            extract(contractsDir + '/' + sourceFile.name, { dir: contractsDir }, function (err) {
+                                // extraction is complete. make sure to handle the err
+                                if (err) {
+                                    reject(err);
+                                }
+                                resolve();
+                            })
+                        }).then(() => {
+                            let compileCmd = getCmd(contractsDir, contractName);
+                            return execfunc(compileCmd);
+                        })
+                    }
+                }, err => {
+                    res.status(500).send(err);
+                }).then(stdout => {
+                    console.log(stdout);
+                    //gen abi
+                    if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
+                        return null;
+                    }
+                    let genabiCmd = getGenabiCmd(contractsDir, contractName);
+                    return execfunc(genabiCmd);
+                }, err => {
+                    res.status(500).send(err);
+                }).then(stdout => {
+                    console.log(stdout);
+                    //shasum 
+                    return getHash(contractsDir + "/" + contractName + ".wasm");
+                }, err => {
+                    res.status(500).send(err);
+                }).then(hash => {
+                    fs.readFile(contractsDir + "/" + contractName + ".abi", (err, data) => {
+                        if (err || !data) {
+                            return res.status(500).send(err + "\nabi is null!");
+                        }
+                        let abi = JSON.parse(data.toString());
+                        let obj = {
+                            codeHash: hash,
+                            abi: abi
+                        }
+                        res.json(obj);
+                    });
+                });
+        });
     });
+
 });
 
 function execfunc(cmd) {
@@ -111,5 +138,15 @@ function getCmd(path, name) {
             + " eosiocpp -o " + dir + name + ".wast " + dir + name + ".cpp";
     } else {
         return "eosiocpp -o " + path + '/' + name + ".wast " + path + '/' + name + ".cpp";
+    }
+}
+
+function getGenabiCmd(path, name) {
+    if (config.compiler.dockerFlag) {
+        let dir = "/opt/contracts/" + name + '/';
+        return "docker exec " + config.compiler.container + "-" + config.compiler.version
+            + " eosiocpp -g " + dir + name + ".abi " + dir + name + ".cpp";
+    } else {
+        return "eosiocpp -g " + path + '/' + name + ".abi " + path + '/' + name + ".cpp";
     }
 }

@@ -148,30 +148,47 @@ app.post('/upload', function (req, res) {
                                 if (err) {
                                     res.status(500).send(err);
                                 }
-                                files.forEach(file => {
-                                    let writestream = gfs.createWriteStream({
-                                        filename: file,
-                                        metadata: {
-                                            contractAccount: _account
+                                new Promise((resolve, reject) => {
+                                    let size = files.length;
+                                    let ids = [];
+                                    let i = 0;
+                                    files.forEach(file => {
+                                        let writestream = gfs.createWriteStream({
+                                            filename: file,
+                                            metadata: {
+                                                contractAccount: _account
+                                            }
+                                        });
+                                        writestream.on('close', function (file) {
+                                            ids.push(file._id);
+                                            if (++i == size) {
+                                                resolve(ids);
+                                            }
+                                        });
+                                        writestream.on('error', function (file) {
+                                            reject(error);
+                                        });
+
+                                        fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
+                                    });
+                                }).then(ids => {
+                                    let object = {
+                                        account: _account,
+                                        files: ids,
+                                        version: config.compiler.version,
+                                        hash: hash,
+                                        timestamp: new Date()
+                                    }
+                                    let collection = db.collection("contracts");
+                                    collection.insertOne(object, function (err, result) {
+                                        if (err) {
+                                            res.status(500).send(err);
+                                        } else {
+                                            res.json(obj);
                                         }
                                     });
-                                    fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
-                                });
-
-                                let object = {
-                                    account: _account,
-                                    files: files,
-                                    version: config.compiler.version,
-                                    hash: hash,
-                                    timestamp: new Date()
-                                }
-                                let collection = db.collection("contracts");
-                                collection.insertOne(object, function (err, result) {
-                                    if (err) {
-                                        res.status(500).send(err);
-                                    } else {
-                                        res.json(obj);
-                                    }
+                                }, err => {
+                                    res.status(500).send(err);
                                 });
                             });
                         } else {
@@ -183,6 +200,48 @@ app.post('/upload', function (req, res) {
     });
 
 });
+
+app.get('/code/:account', function (req, res) {
+    let account = req.params.account;
+    if (!account) {
+        res.status(400).json({ error: 'contract account  is null' })
+    }
+    let collection = db.collection("contracts");
+    /*     collection.findOne(object, function (err, result) {
+            if (err) {
+                res.status(500).send(err);
+            } else {
+                res.json(obj);
+            }
+        }); */
+    let condition = { "account": account };
+    let sort = { "timestamp": -1 };
+    collection.find(condition).sort(sort).toArray(function (err, docs) {
+        if (err) {
+            res.status(500).json({ error: err });
+        }
+        res.json(docs);
+    });
+})
+
+app.get('/file/:id', function (req, res) {
+    let file = req.params.id;
+    if (!file) {
+        res.status(400).json({ error: 'file is is null' })
+    }
+    let readstream = gfs.createReadStream({
+        _id: file
+    });
+
+    //error handling, e.g. file does not exist
+    readstream.on('error', function (err) {
+        console.log('An error occurred!', err);
+        res.status(500).json({ error: err })
+    });
+
+    readstream.pipe(res);
+
+})
 
 function execfunc(cmd) {
     return new Promise((resolve, reject) => {

@@ -34,6 +34,7 @@ server.timeout = 240000;
 app.use(fileUpload());
 
 app.post('/upload', function (req, res) {
+    res.header("Access-Control-Allow-Origin", "*");
     if (!req.files) {
         return res.status(400).send('No files were uploaded.');
     }
@@ -202,6 +203,7 @@ app.post('/upload', function (req, res) {
 });
 
 app.get('/code/:account', function (req, res) {
+    res.header("Access-Control-Allow-Origin", "*");
     let account = req.params.account;
     if (!account) {
         res.status(400).json({ error: 'contract account  is null' })
@@ -225,6 +227,7 @@ app.get('/code/:account', function (req, res) {
 })
 
 app.get('/file/:id', function (req, res) {
+    res.header("Access-Control-Allow-Origin", "*");
     let file = req.params.id;
     if (!file) {
         res.status(400).json({ error: 'file is is null' })

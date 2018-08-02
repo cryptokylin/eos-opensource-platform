@@ -145,13 +145,14 @@ app.post('/upload', function (req, res) {
                         }
                         //if input eos account , save the contract
                         if (_account) {
+                            fs.unlinkSync(contractsDir + "/" + contractName + ".abi");
                             fs.readdir(contractsDir, (err, files) => {
                                 if (err) {
                                     res.status(500).send(err);
                                 }
                                 new Promise((resolve, reject) => {
                                     let size = files.length;
-                                    let ids = [];
+                                    let fileInfos = [];
                                     let i = 0;
                                     files.forEach(file => {
                                         let writestream = gfs.createWriteStream({
@@ -161,9 +162,9 @@ app.post('/upload', function (req, res) {
                                             }
                                         });
                                         writestream.on('close', function (file) {
-                                            ids.push(file._id);
+                                            fileInfos.push({ id: file._id, name: file.filename });
                                             if (++i == size) {
-                                                resolve(ids);
+                                                resolve(fileInfos);
                                             }
                                         });
                                         writestream.on('error', function (file) {
@@ -172,10 +173,10 @@ app.post('/upload', function (req, res) {
 
                                         fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
                                     });
-                                }).then(ids => {
+                                }).then(files => {
                                     let object = {
                                         account: _account,
-                                        files: ids,
+                                        files: files,
                                         version: config.compiler.version,
                                         hash: hash,
                                         timestamp: new Date()

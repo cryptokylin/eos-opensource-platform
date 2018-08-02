@@ -1,12 +1,21 @@
 <html>
-  <body>
-    <form ref='uploadForm' 
-      id='uploadForm' 
-      action='http://18.182.176.8:10082/upload' 
-      method='post' 
-      encType="multipart/form-data">
-        <input type="file" name="sourceFile" />
-        <input type='submit' value='Upload!' />
-    </form>     
-  </body>
+
+<body>
+  <form ref='uploadForm' id='uploadForm' action='https://explorer.eoseco.com/compiler/upload' method='post' encType="multipart/form-data">
+    source file:
+    <input type="file" name="sourceFile" />
+    </br>
+    account:
+    <input type="text" name="account" />
+    </br>
+    hash:
+    <input type="text" name="hash" size="100" />
+    </br>
+    abi:</br>
+    <textarea rows="10" cols="100" name="abi"></textarea>
+    </br>
+    <input type='submit' value='Upload!' />
+  </form>
+</body>
+
 </html>

@@ -39,6 +39,7 @@ app.post('/upload', function (req, res) {
         return res.status(400).send('No files were uploaded.');
     }
 
+    //genabi = true means to deploy
     let _genabi = false;
     if (req.body.genabi) {
         _genabi = true;
@@ -54,7 +55,7 @@ app.post('/upload', function (req, res) {
         _account = req.body.account;
     }
 
-    let _version = null;
+    let _version = config.compiler.versions[0];
     if (req.body.version) {
         _version = req.body.version;
     }
@@ -118,6 +119,10 @@ app.post('/upload', function (req, res) {
                     if (!_genabi) {
                         return null;
                     }
+                    // if project file include abi
+                    if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
+                        return null;
+                    }
                     //gen abi
                     let genabiCmd = getGenabiCmd(contractsDir, contractName, _version);
                     return execfunc(genabiCmd);
@@ -146,9 +151,11 @@ app.post('/upload', function (req, res) {
                     if (abi) {
                         obj.abi = abi;
                     }
-                    //if input eos account , save the contract
-                    if (_account) {
-                        fs.unlinkSync(contractsDir + "/" + contractName + ".abi");
+                    //if input eos account and hash match  , save the contract
+                    if ((_account && (_hash == hash)) || (_account && _genabi)) {
+                        if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
+                            fs.unlinkSync(contractsDir + "/" + contractName + ".abi");
+                        }
                         fs.readdir(contractsDir, (err, files) => {
                             if (err) {
                                 res.status(500).send(err);
@@ -180,7 +187,7 @@ app.post('/upload', function (req, res) {
                                 let object = {
                                     account: _account,
                                     files: files,
-                                    version: config.compiler.version,
+                                    version: _version,
                                     hash: hash,
                                     timestamp: new Date()
                                 }

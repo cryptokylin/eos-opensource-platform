@@ -1,18 +1,21 @@
 <html>
 
 <body>
-  <form ref='uploadForm' id='uploadForm' action='http://127.0.0.1:8002/upload' method='post' encType="multipart/form-data">
+  <form ref='uploadForm' id='uploadForm' action='http://127.0.0.1:10082/upload' method='post' encType="multipart/form-data">
     source file:
     <input type="file" name="sourceFile" />
     </br>
     account:
     <input type="text" name="account" />
     </br>
+    compiler version:
+    <input type="text" name="version" />
+    </br>
     hash:
     <input type="text" name="hash" size="100" />
     </br>
-    abi:</br>
-    <textarea rows="10" cols="100" name="abi"></textarea>
+    genabi:
+    <input type="checkbox" name="genabi" />
     </br>
     <input type='submit' value='Upload!' />
   </form>

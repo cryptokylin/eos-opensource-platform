@@ -1,10 +1,12 @@
 {
     "server": {
-        "port": 8002
+        "port": 10082
     },
     "compiler": {
         "image": "eosio/eos-dev",
-        "version": "v1.1.1",
+        "versions": [
+            "v1.1.1"
+        ],
         "container": "eos-dev",
         "dockerFlag": true
     },

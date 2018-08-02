@@ -39,9 +39,9 @@ app.post('/upload', function (req, res) {
         return res.status(400).send('No files were uploaded.');
     }
 
-    let _abi = null;
-    if (req.body.abi) {
-        _abi = JSON.parse(req.body.abi);
+    let _genabi = false;
+    if (req.body.genabi) {
+        _genabi = true;
     }
 
     let _hash = null;
@@ -52,6 +52,11 @@ app.post('/upload', function (req, res) {
     let _account = null;
     if (req.body.account) {
         _account = req.body.account;
+    }
+
+    let _version = null;
+    if (req.body.version) {
+        _version = req.body.version;
     }
 
     let sourceFile = req.files.sourceFile;
@@ -83,7 +88,7 @@ app.post('/upload', function (req, res) {
             sourceFile.mv(contractsDir + '/' + sourceFile.name)
                 .then(() => {
                     if (type == "cpp") {
-                        let compileCmd = getCmd(contractsDir, contractName);
+                        let compileCmd = getCmd(contractsDir, contractName, _version);
                         return execfunc(compileCmd);
                     } else {
                         //type = zip
@@ -102,7 +107,7 @@ app.post('/upload', function (req, res) {
                                 });
                             })
                         }).then(() => {
-                            let compileCmd = getCmd(contractsDir, contractName);
+                            let compileCmd = getCmd(contractsDir, contractName, _version);
                             return execfunc(compileCmd);
                         })
                     }
@@ -110,11 +115,11 @@ app.post('/upload', function (req, res) {
                     res.status(500).send(err);
                 }).then(stdout => {
                     console.log(stdout);
-                    //gen abi
-                    if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
+                    if (!_genabi) {
                         return null;
                     }
-                    let genabiCmd = getGenabiCmd(contractsDir, contractName);
+                    //gen abi
+                    let genabiCmd = getGenabiCmd(contractsDir, contractName, _version);
                     return execfunc(genabiCmd);
                 }, err => {
                     res.status(500).send(err);
@@ -127,77 +132,75 @@ app.post('/upload', function (req, res) {
                 }).then(hash => {
                     fs.unlinkSync(contractsDir + "/" + contractName + ".wasm");
                     fs.unlinkSync(contractsDir + "/" + contractName + ".wast");
-                    fs.readFile(contractsDir + "/" + contractName + ".abi", (err, data) => {
-                        if (err || !data) {
-                            return res.status(500).send(err + "\nabi is null!");
-                        }
-                        let abi = JSON.parse(data.toString());
-                        let obj = {
-                            codeHash: hash
-                        }
-                        if (_hash) {
-                            obj.hashMatch = (_hash == hash);
-                        }
-                        if (_abi) {
-                            obj.abiDiff = jsondiff(_abi, abi);
-                        } else {
-                            obj.abi = abi;
-                        }
-                        //if input eos account , save the contract
-                        if (_account) {
-                            fs.unlinkSync(contractsDir + "/" + contractName + ".abi");
-                            fs.readdir(contractsDir, (err, files) => {
-                                if (err) {
-                                    res.status(500).send(err);
-                                }
-                                new Promise((resolve, reject) => {
-                                    let size = files.length;
-                                    let fileInfos = [];
-                                    let i = 0;
-                                    files.forEach(file => {
-                                        let writestream = gfs.createWriteStream({
-                                            filename: file,
-                                            metadata: {
-                                                contractAccount: _account
-                                            }
-                                        });
-                                        writestream.on('close', function (file) {
-                                            fileInfos.push({ id: file._id, name: file.filename });
-                                            if (++i == size) {
-                                                resolve(fileInfos);
-                                            }
-                                        });
-                                        writestream.on('error', function (file) {
-                                            reject(error);
-                                        });
-
-                                        fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
-                                    });
-                                }).then(files => {
-                                    let object = {
-                                        account: _account,
-                                        files: files,
-                                        version: config.compiler.version,
-                                        hash: hash,
-                                        timestamp: new Date()
-                                    }
-                                    let collection = db.collection("contracts");
-                                    collection.insertOne(object, function (err, result) {
-                                        if (err) {
-                                            res.status(500).send(err);
-                                        } else {
-                                            res.json(obj);
+                    let abi = null;
+                    if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
+                        let abiFile = fs.readFileSync(contractsDir + "/" + contractName + ".abi");
+                        abi = JSON.parse(abiFile.toString());
+                    }
+                    let obj = {
+                        codeHash: hash
+                    }
+                    if (_hash) {
+                        obj.hashMatch = (_hash == hash);
+                    }
+                    if (abi) {
+                        obj.abi = abi;
+                    }
+                    //if input eos account , save the contract
+                    if (_account) {
+                        fs.unlinkSync(contractsDir + "/" + contractName + ".abi");
+                        fs.readdir(contractsDir, (err, files) => {
+                            if (err) {
+                                res.status(500).send(err);
+                            }
+                            new Promise((resolve, reject) => {
+                                let size = files.length;
+                                let fileInfos = [];
+                                let i = 0;
+                                files.forEach(file => {
+                                    let writestream = gfs.createWriteStream({
+                                        filename: file,
+                                        metadata: {
+                                            contractAccount: _account
                                         }
                                     });
-                                }, err => {
-                                    res.status(500).send(err);
+                                    writestream.on('close', function (file) {
+                                        fileInfos.push({ id: file._id, name: file.filename });
+                                        if (++i == size) {
+                                            resolve(fileInfos);
+                                        }
+                                    });
+                                    writestream.on('error', function (file) {
+                                        reject(error);
+                                    });
+
+                                    fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
                                 });
+                            }).then(files => {
+                                let object = {
+                                    account: _account,
+                                    files: files,
+                                    version: config.compiler.version,
+                                    hash: hash,
+                                    timestamp: new Date()
+                                }
+                                let collection = db.collection("contracts");
+                                collection.insertOne(object, function (err, result) {
+                                    if (err) {
+                                        res.status(500).send(err);
+                                    } else {
+                                        res.json(obj);
+                                    }
+                                });
+                            }, err => {
+                                res.status(500).send(err);
                             });
-                        } else {
-                            res.json(obj);
-                        }
-                    });
+                        });
+                    } else {
+                        res.json(obj);
+                    }
                 });
+
         });
     });
 
@@ -247,6 +250,11 @@ app.get('/file/:id', function (req, res) {
 
 })
 
+app.get('/versions', function (req, res) {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.json(config.compiler.versions);
+})
+
 function execfunc(cmd) {
     return new Promise((resolve, reject) => {
         exec(cmd, function (error, stdout, stderr) {
@@ -273,20 +281,26 @@ function getHash(file) {
     });
 }
 
-function getCmd(path, name) {
+function getCmd(path, name, version) {
+    if (!version) {
+        version = config.compiler.versions[0];
+    }
     if (config.compiler.dockerFlag) {
         let dir = "/opt/contracts/" + name + '/';
-        return "docker exec " + config.compiler.container + "-" + config.compiler.version
+        return "docker exec " + config.compiler.container + "-" + version
             + " eosiocpp -o " + dir + name + ".wast " + dir + name + ".cpp";
     } else {
         return "eosiocpp -o " + path + '/' + name + ".wast " + path + '/' + name + ".cpp";
     }
 }
 
-function getGenabiCmd(path, name) {
+function getGenabiCmd(path, name, version) {
+    if (!version) {
+        version = config.compiler.versions[0];
+    }
     if (config.compiler.dockerFlag) {
         let dir = "/opt/contracts/" + name + '/';
-        return "docker exec " + config.compiler.container + "-" + config.compiler.version
+        return "docker exec " + config.compiler.container + "-" + version
             + " eosiocpp -g " + dir + name + ".abi " + dir + name + ".cpp";
     } else {
         return "eosiocpp -g " + path + '/' + name + ".abi " + path + '/' + name + ".cpp";

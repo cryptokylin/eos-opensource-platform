@@ -261,7 +261,24 @@ app.get('/versions', function (req, res) {
     res.json(config.compiler.versions);
 })
 
-//app.get('/contract')
+// get open source contract list
+app.get('/contracts', function (req, res) {
+    res.header("Access-Control-Allow-Origin", "*");
+    let collection = db.collection("contracts");
+    let aggregate = [{ $group: { _id: { account: "$account" }, count: { $sum: 1 } } }];
+    collection.aggregate(aggregate).toArray(function (err, result) {
+        if (err) {
+            res.status(500).send(err);
+        } else {
+            let arr = [];
+            result.forEach(doc => {
+                arr.push(doc._id.account);
+            })
+            res.json(arr);
+        }
+    });
+})
+
 
 function execfunc(cmd) {
     return new Promise((resolve, reject) => {

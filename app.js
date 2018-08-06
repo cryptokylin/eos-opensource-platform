@@ -9,7 +9,7 @@ const mkdirp = require('mkdirp');
 const extract = require('extract-zip');
 const crypto = require('crypto');
 const rimraf = require('rimraf');
-const jsondiff = require('deep-diff').diff;
+//const jsondiff = require('deep-diff').diff;
 const mongo = require('mongodb');
 const Grid = require('gridfs-stream');
 
@@ -151,61 +151,71 @@ app.post('/upload', function (req, res) {
                     if (abi) {
                         obj.abi = abi;
                     }
+                    //if exsit , not save
                     //if input eos account and hash match  , save the contract
-                    if ((_account && (_hash == hash)) || (_account && _genabi)) {
-                        if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
-                            fs.unlinkSync(contractsDir + "/" + contractName + ".abi");
-                        }
-                        fs.readdir(contractsDir, (err, files) => {
-                            if (err) {
-                                res.status(500).send(err);
-                            }
-                            new Promise((resolve, reject) => {
-                                let size = files.length;
-                                let fileInfos = [];
-                                let i = 0;
-                                files.forEach(file => {
-                                    let writestream = gfs.createWriteStream({
-                                        filename: file,
-                                        metadata: {
-                                            contractAccount: _account
-                                        }
-                                    });
-                                    writestream.on('close', function (file) {
-                                        fileInfos.push({ id: file._id, name: file.filename });
-                                        if (++i == size) {
-                                            resolve(fileInfos);
-                                        }
-                                    });
-                                    writestream.on('error', function (file) {
-                                        reject(error);
-                                    });
-
-                                    fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
-                                });
-                            }).then(files => {
-                                let object = {
-                                    account: _account,
-                                    files: files,
-                                    version: _version,
-                                    hash: hash,
-                                    timestamp: new Date()
+                    getContracts(_account, hash).then(docs => {
+                        if (docs.length > 0) {
+                            //exist
+                            res.json(obj);
+                        } else {
+                            if ((_account && (_hash == hash)) || (_account && _genabi)) {
+                                if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
+                                    fs.unlinkSync(contractsDir + "/" + contractName + ".abi");
                                 }
-                                let collection = db.collection("contracts");
-                                collection.insertOne(object, function (err, result) {
+                                fs.readdir(contractsDir, (err, files) => {
                                     if (err) {
                                         res.status(500).send(err);
-                                    } else {
-                                        res.json(obj);
                                     }
+                                    new Promise((resolve, reject) => {
+                                        let size = files.length;
+                                        let fileInfos = [];
+                                        let i = 0;
+                                        files.forEach(file => {
+                                            let writestream = gfs.createWriteStream({
+                                                filename: file,
+                                                metadata: {
+                                                    contractAccount: _account
+                                                }
+                                            });
+                                            writestream.on('close', function (file) {
+                                                fileInfos.push({ id: file._id, name: file.filename });
+                                                if (++i == size) {
+                                                    resolve(fileInfos);
+                                                }
+                                            });
+                                            writestream.on('error', function (file) {
+                                                reject(error);
+                                            });
+
+                                            fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
+                                        });
+                                    }).then(files => {
+                                        let object = {
+                                            account: _account,
+                                            files: files,
+                                            version: _version,
+                                            hash: hash,
+                                            timestamp: new Date()
+                                        }
+                                        let collection = db.collection("contracts");
+                                        collection.insertOne(object, function (err, result) {
+                                            if (err) {
+                                                res.status(500).send(err);
+                                            } else {
+                                                res.json(obj);
+                                            }
+                                        });
+                                    }, err => {
+                                        res.status(500).send(err);
+                                    });
                                 });
-                            }, err => {
-                                res.status(500).send(err);
-                            });
-                        });
-                    } else {
-                        res.json(obj);
-                    }
+                            } else {
+                                res.json(obj);
+                            }
+                        }
+                    }, err => {
+                        res.status(500).send(err);
+                    })
                 });
 
         });
@@ -219,22 +229,11 @@ app.get('/code/:account', function (req, res) {
     if (!account) {
         res.status(400).json({ error: 'contract account  is null' })
     }
-    let collection = db.collection("contracts");
-    /*     collection.findOne(object, function (err, result) {
-            if (err) {
-                res.status(500).send(err);
-            } else {
-                res.json(obj);
-            }
-        }); */
-    let condition = { "account": account };
-    let sort = { "timestamp": -1 };
-    collection.find(condition).sort(sort).toArray(function (err, docs) {
-        if (err) {
-            res.status(500).json({ error: err });
-        }
-        res.json(docs);
-    });
+    getContracts(account, null).then(result => {
+        res.json(result);
+    }, err => {
+        res.status(500).json({ error: err });
+    })
 })
 
 app.get('/file/:id', function (req, res) {
@@ -261,6 +260,8 @@ app.get('/versions', function (req, res) {
     res.header("Access-Control-Allow-Origin", "*");
     res.json(config.compiler.versions);
 })
+
+//app.get('/contract')
 
 function execfunc(cmd) {
     return new Promise((resolve, reject) => {
@@ -312,4 +313,27 @@ function getGenabiCmd(path, name, version) {
     } else {
         return "eosiocpp -g " + path + '/' + name + ".abi " + path + '/' + name + ".cpp";
     }
+}
+
+function getContracts(account, hash) {
+    return new Promise((resolve, reject) => {
+        if (!account) {
+            resolve({});
+        }
+        let collection = db.collection("contracts");
+        let condition = {
+            account: account
+        }
+        if (hash) {
+            condition.hash = hash;
+        }
+        let sort = { "timestamp": -1 };
+        collection.find(condition).sort(sort).toArray(function (err, docs) {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(docs);
+            }
+        });
+    });
 }

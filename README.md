@@ -36,7 +36,7 @@ GET available compiler versions
 
 ## TODO
 - intergrate with docker image
-- support can not compiled with eosiocpp
+- support can not compiled with eosiocpp
 
 ## DONE
 - add genabi

@@ -13,8 +13,30 @@
 - user test-local.html to upload source code to local server
 - source code support single cpp file or project in zip
 
+## API
+
+### /upload
+
+update cpp file or zip file to server , compiler and compare hash
+
+usage: see test.html
+
+### /code/:account
+
+GET file id related to the code
+
+### /file/:id
+
+GET file by id
+
+### /versions
+
+GET available compiler versions
+
+
 ## TODO
 - intergrate with docker image
+- support can not compiled with eosiocpp
 
 ## DONE
 - add genabi

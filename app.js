@@ -13,6 +13,14 @@ const rimraf = require('rimraf');
 const mongo = require('mongodb');
 const Grid = require('gridfs-stream');
 
+//包装为 Promise 接口
+global.Promise = require("bluebird");
+const rimrafPromise = Promise.promisify(rimraf, rimraf);
+const mkdirpPromise = Promise.promisify(mkdirp, mkdirp);
+const readdirPromise = Promise.promisify(fs.readdir, fs);
+
+//const ipfsAgent = require('./ipfsAgent');
+
 
 // create or use an existing mongodb-native db instance
 //var db = new mongo.Db('test', new mongo.Server(config.mongodb.server, config.mongodb.port));
@@ -76,158 +84,157 @@ app.post('/upload', function (req, res) {
     }
 
     let contractsDir = __dirname + '/contracts/' + contractName;
+    var returnObj = {};
 
-    rimraf(contractsDir, (err) => {
-        if (err) {
-            return res.status(500).send(err);
-        }
-        mkdirp(contractsDir, (err) => {
-            if (err) {
-                return res.status(500).send(err);
-            }
-            //move upload file to a dir
-            sourceFile.mv(contractsDir + '/' + sourceFile.name)
-                .then(() => {
-                    if (type == "cpp") {
-                        let compileCmd = getCmd(contractName, _version);
-                        return execfunc(compileCmd);
-                    } else {
-                        //type = zip
-                        //extract zip 
-                        return new Promise((resolve, reject) => {
-                            extract(contractsDir + '/' + sourceFile.name, { dir: contractsDir }, function (err) {
-                                // extraction is complete. make sure to handle the err
-                                if (err) {
-                                    reject(err);
-                                }
-                                fs.unlink(contractsDir + '/' + sourceFile.name, (err) => {
-                                    if (err) {
-                                        reject(err);
-                                    }
-                                    resolve();
-                                });
-                            })
-                        }).then(() => {
-                            let compileCmd = getCmd(contractName, _version);
-                            return execfunc(compileCmd);
-                        })
+    //删除目录
+    rimrafPromise(contractsDir).then(() => { //新建目录
+        return mkdirpPromise(contractsDir);
+    }).then(() => { //移动上传的源代码到指定目录
+        return sourceFile.mv(contractsDir + '/' + sourceFile.name)
+    }).then(() => { //执行编译脚本
+        if (type == "cpp") {
+            let compileCmd = getCmd(contractName, _version);
+            return execfunc(compileCmd);
+        } else {
+            //type = zip
+            //extract zip 
+            return new Promise((resolve, reject) => {
+                extract(contractsDir + '/' + sourceFile.name, { dir: contractsDir }, function (err) {
+                    // extraction is complete. make sure to handle the err
+                    if (err) {
+                        reject(err);
                     }
-                }, err => {
-                    res.status(500).send(err);
-                }).then(stdout => {
-                    console.log(stdout);
-                    if (!_genabi) {
-                        return null;
-                    }
-                    // if project file include abi
-                    if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
-                        return null;
-                    }
-                    //gen abi
-                    let genabiCmd = getGenabiCmd(contractName, _version);
-                    return execfunc(genabiCmd);
-                }, err => {
-                    res.status(500).send(err);
-                }).then(stdout => {
-                    console.log(stdout);
-                    //shasum 
-                    return getHash(contractsDir + "/" + contractName + ".wasm");
-                }, err => {
-                    res.status(500).send(err);
-                }).then(hash => {
-                    //fs.unlinkSync(contractsDir + "/" + contractName + ".wasm");
-                    //fs.unlinkSync(contractsDir + "/" + contractName + ".wast");
-                    let abi = null;
-                    if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
-                        let abiFile = fs.readFileSync(contractsDir + "/" + contractName + ".abi");
-                        abi = JSON.parse(abiFile.toString());
-                    }
-                    let obj = {
-                        codeHash: hash
-                    }
-                    if (_hash) {
-                        obj.hashMatch = (_hash == hash);
-                    }
-                    if (abi) {
-                        obj.abi = abi;
-                    }
-                    //if exsit , not save
-                    //if input eos account and hash match  , save the contract
-                    getContracts(_account, hash).then(docs => {
-                        if (docs.length > 0) {
-                            //exist
-                            res.json(obj);
-                        } else {
-                            if ((_account && (_hash == hash)) || (_account && _genabi)) {
-                                if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
-                                    fs.unlinkSync(contractsDir + "/" + contractName + ".abi");
-                                }
-                                fs.readdir(contractsDir, (err, files) => {
-                                    if (err) {
-                                        res.status(500).send(err);
-                                    }
-                                    new Promise((resolve, reject) => {
-                                        let size = files.length;
-                                        let fileInfos = [];
-                                        let i = 0;
-                                        files.forEach(file => {
-                                            let writestream = gfs.createWriteStream({
-                                                filename: file,
-                                                metadata: {
-                                                    contractAccount: _account
-                                                }
-                                            });
-                                            writestream.on('close', function (resultObj) {
-                                                let fileInfo = { id: resultObj._id, name: resultObj.filename };
-                                                if (resultObj.filename == contractName + ".wasm" || resultObj.filename == contractName + ".wast") {
-                                                    //put to ipfs
-                                                    fileInfo.isBinary = true;
-                                                } else {
-                                                    fileInfo.isBinary = false;
-                                                }
-                                                fileInfos.push(fileInfo);
-                                                if (++i == size) {
-                                                    resolve(fileInfos);
-                                                }
-                                            });
-                                            writestream.on('error', function (resultObj) {
-                                                reject(error);
-                                            });
-
-                                            fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
-                                        });
-                                    }).then(files => {
-                                        let object = {
-                                            account: _account,
-                                            files: files,
-                                            version: _version,
-                                            hash: hash,
-                                            timestamp: new Date()
-                                        }
-                                        let collection = db.collection("contracts");
-                                        collection.insertOne(object, function (err, result) {
-                                            if (err) {
-                                                res.status(500).send(err);
-                                            } else {
-                                                res.json(obj);
-                                            }
-                                        });
-                                    }, err => {
-                                        res.status(500).send(err);
-                                    });
-                                });
-                            } else {
-                                res.json(obj);
-                            }
+                    fs.unlink(contractsDir + '/' + sourceFile.name, (err) => {
+                        if (err) {
+                            reject(err);
                         }
-                    }, err => {
-                        res.status(500).send(err);
-                    })
+                        resolve();
+                    });
+                })
+            }).then(() => {
+                let compileCmd = getCmd(contractName, _version);
+                return execfunc(compileCmd);
+            })
+        }
+    }).then(stdout => { //生成abi
+        console.log(stdout);
+        if (!_genabi) {
+            return null;
+        }
+        // if project file include abi
+        if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
+            return null;
+        }
+        //gen abi
+        let genabiCmd = getGenabiCmd(contractName, _version);
+        return execfunc(genabiCmd);
+    }).then(stdout => { //获取wasm hash
+        console.log(stdout);
+        //shasum 
+        return getHash(contractsDir + "/" + contractName + ".wasm");
+    }).then(hash => {  //构造返回结果
+        //fs.unlinkSync(contractsDir + "/" + contractName + ".wasm");
+        //fs.unlinkSync(contractsDir + "/" + contractName + ".wast");
+        let abi = null;
+        if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
+            let abiFile = fs.readFileSync(contractsDir + "/" + contractName + ".abi");
+            abi = JSON.parse(abiFile.toString());
+        }
+        returnObj = {
+            codeHash: hash
+        }
+        if (abi) {
+            returnObj.abi = abi;
+        }
+        if (_hash) {
+            returnObj.hashMatch = (_hash == hash);
+        }
+        //检查是否需要向存储文件
+        if (_hash && !returnObj.hashMatch) {
+            return false;
+        } else {
+            return getContracts(_account, hash).then(docs => {
+                if (docs.length > 0) {
+                    //exist
+                    return false;
+                } else {
+                    return true;
+                }
+            })
+        }
+        //if exsit , not save
+        //if input eos account and hash match  , save the contract
+    }).then(storeFlag => { //存储数据和文件
+        if (!storeFlag) {
+            return;
+        } else {
+            return readdirPromise(contractsDir).then((files) => {
+                return new Promise((resolve, reject) => {
+                    let size = files.length;
+                    let fileInfos = [];
+                    let i = 0;
+                    ///
+                    //IPFS
+                    ///
+                    if (!_account) { //不需要存储在本地，没输入合约账户
+                        resolve(null);
+                    } else {
+                        files.forEach(file => {
+                            let writestream = gfs.createWriteStream({
+                                filename: file,
+                                metadata: {
+                                    contractAccount: _account
+                                }
+                            });
+                            writestream.on('close', function (resultObj) {
+                                let fileInfo = { id: resultObj._id, name: resultObj.filename };
+                                if (resultObj.filename == contractName + ".wasm" || resultObj.filename == contractName + ".wast") {
+                                    //put to ipfs
+                                    fileInfo.isBinary = true;
+                                } else {
+                                    fileInfo.isBinary = false;
+                                }
+                                fileInfos.push(fileInfo);
+                                if (++i == size) {
+                                    resolve(fileInfos);
+                                }
+                            });
+                            writestream.on('error', function (error) {
+                                throw reject(error);
+                            });
+
+                            fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
+                        });
+                    }
                 });
-
-        });
+            }).then(files => {
+                if (files) {
+                    let object = {
+                        account: _account,
+                        files: files,
+                        version: _version,
+                        hash: returnObj.codeHash,
+                        timestamp: new Date()
+                    }
+                    let collection = db.collection("contracts");
+                    collection.insertOne(object, function (err, result) {
+                        if (err) {
+                            throw new Error(err);
+                        } else {
+                            return;
+                        }
+                    });
+                }
+            }).catch(err => {
+                throw new Error(err);
+            });
+        }
+    }).then(() => { //返回交易结果
+        res.json(returnObj);
+    }).catch(err => {
+        console.error(err);
+        res.status(500).json(err.message);
     });
-
 });
 
 app.get('/code/:account', function (req, res) {

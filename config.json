@@ -19,8 +19,7 @@
             "v1.0.1",
             "v1.0.0"
         ],
-        "container": "eos-dev",
-        "dockerFlag": true
+        "container": "eos-dev"
     },
     "mongodb": {
         "url": "mongodb://localhost:27017",

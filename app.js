@@ -89,7 +89,7 @@ app.post('/upload', function (req, res) {
             sourceFile.mv(contractsDir + '/' + sourceFile.name)
                 .then(() => {
                     if (type == "cpp") {
-                        let compileCmd = getCmd(contractsDir, contractName, _version);
+                        let compileCmd = getCmd(contractName, _version);
                         return execfunc(compileCmd);
                     } else {
                         //type = zip
@@ -108,7 +108,7 @@ app.post('/upload', function (req, res) {
                                 });
                             })
                         }).then(() => {
-                            let compileCmd = getCmd(contractsDir, contractName, _version);
+                            let compileCmd = getCmd(contractName, _version);
                             return execfunc(compileCmd);
                         })
                     }
@@ -124,7 +124,7 @@ app.post('/upload', function (req, res) {
                         return null;
                     }
                     //gen abi
-                    let genabiCmd = getGenabiCmd(contractsDir, contractName, _version);
+                    let genabiCmd = getGenabiCmd(contractName, _version);
                     return execfunc(genabiCmd);
                 }, err => {
                     res.status(500).send(err);
@@ -135,8 +135,8 @@ app.post('/upload', function (req, res) {
                 }, err => {
                     res.status(500).send(err);
                 }).then(hash => {
-                    fs.unlinkSync(contractsDir + "/" + contractName + ".wasm");
-                    fs.unlinkSync(contractsDir + "/" + contractName + ".wast");
+                    //fs.unlinkSync(contractsDir + "/" + contractName + ".wasm");
+                    //fs.unlinkSync(contractsDir + "/" + contractName + ".wast");
                     let abi = null;
                     if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
                         let abiFile = fs.readFileSync(contractsDir + "/" + contractName + ".abi");
@@ -177,13 +177,20 @@ app.post('/upload', function (req, res) {
                                                     contractAccount: _account
                                                 }
                                             });
-                                            writestream.on('close', function (file) {
-                                                fileInfos.push({ id: file._id, name: file.filename });
+                                            writestream.on('close', function (resultObj) {
+                                                let fileInfo = { id: resultObj._id, name: resultObj.filename };
+                                                if (resultObj.filename == contractName + ".wasm" || resultObj.filename == contractName + ".wast") {
+                                                    //put to ipfs
+                                                    fileInfo.isBinary = true;
+                                                } else {
+                                                    fileInfo.isBinary = false;
+                                                }
+                                                fileInfos.push(fileInfo);
                                                 if (++i == size) {
                                                     resolve(fileInfos);
                                                 }
                                             });
-                                            writestream.on('error', function (file) {
+                                            writestream.on('error', function (resultObj) {
                                                 reject(error);
                                             });
 
@@ -306,30 +313,26 @@ function getHash(file) {
     });
 }
 
-function getCmd(path, name, version) {
+function getCmd(name, version) {
     if (!version) {
         version = config.compiler.versions[0];
     }
-    if (config.compiler.dockerFlag) {
-        let dir = "/opt/contracts/" + name + '/';
-        return "docker exec " + config.compiler.container + "-" + version
-            + " eosiocpp -o " + dir + name + ".wast " + dir + name + ".cpp";
-    } else {
-        return "eosiocpp -o " + path + '/' + name + ".wast " + path + '/' + name + ".cpp";
-    }
+
+    let dir = "/opt/contracts/" + name + '/';
+    return "docker exec " + config.compiler.container + "-" + version
+        + " eosiocpp -o " + dir + name + ".wast " + dir + name + ".cpp";
+
 }
 
-function getGenabiCmd(path, name, version) {
+function getGenabiCmd(name, version) {
     if (!version) {
         version = config.compiler.versions[0];
     }
-    if (config.compiler.dockerFlag) {
-        let dir = "/opt/contracts/" + name + '/';
-        return "docker exec " + config.compiler.container + "-" + version
-            + " eosiocpp -g " + dir + name + ".abi " + dir + name + ".cpp";
-    } else {
-        return "eosiocpp -g " + path + '/' + name + ".abi " + path + '/' + name + ".cpp";
-    }
+
+    let dir = "/opt/contracts/" + name + '/';
+    return "docker exec " + config.compiler.container + "-" + version
+        + " eosiocpp -g " + dir + name + ".abi " + dir + name + ".cpp";
+
 }
 
 function getContracts(account, hash) {

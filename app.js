@@ -19,7 +19,7 @@ const rimrafPromise = Promise.promisify(rimraf, rimraf);
 const mkdirpPromise = Promise.promisify(mkdirp, mkdirp);
 const readdirPromise = Promise.promisify(fs.readdir, fs);
 
-//const ipfsAgent = require('./ipfsAgent');
+const ipfsAgent = require('./ipfsAgent');
 
 
 // create or use an existing mongodb-native db instance
@@ -27,7 +27,7 @@ const readdirPromise = Promise.promisify(fs.readdir, fs);
 var db, gfs;
 mongo.MongoClient.connect(config.mongodb.url, { useNewUrlParser: true }, function (err, database) {
     if (err) {
-        logger.error("mongodb error", err);
+        console.error("mongodb error", err);
     }
     db = database.db(config.mongodb.dbName);
     gfs = Grid(db, mongo);
@@ -103,13 +103,9 @@ app.post('/upload', function (req, res) {
                     // extraction is complete. make sure to handle the err
                     if (err) {
                         reject(err);
-                    }
-                    fs.unlink(contractsDir + '/' + sourceFile.name, (err) => {
-                        if (err) {
-                            reject(err);
-                        }
+                    } else {
                         resolve();
-                    });
+                    }
                 })
             }).then(() => {
                 let compileCmd = getCmd(contractName, _version);
@@ -133,16 +129,12 @@ app.post('/upload', function (req, res) {
         //shasum 
         return getHash(contractsDir + "/" + contractName + ".wasm");
     }).then(hash => {  //构造返回结果
-        //fs.unlinkSync(contractsDir + "/" + contractName + ".wasm");
-        //fs.unlinkSync(contractsDir + "/" + contractName + ".wast");
         let abi = null;
         if (fs.existsSync(contractsDir + "/" + contractName + ".abi")) {
             let abiFile = fs.readFileSync(contractsDir + "/" + contractName + ".abi");
             abi = JSON.parse(abiFile.toString());
         }
-        returnObj = {
-            codeHash: hash
-        }
+        returnObj.codeHash = hash;
         if (abi) {
             returnObj.abi = abi;
         }
@@ -169,30 +161,56 @@ app.post('/upload', function (req, res) {
             return;
         } else {
             return readdirPromise(contractsDir).then((files) => {
+                let ipfsFiles = [];
+                files.forEach(file => {
+                    ipfsFiles.push({
+                        "path": contractsDir + '/' + file,
+                        "content": fs.createReadStream(contractsDir + '/' + file)
+                    })
+                })
+                return ipfsAgent.pushFiles(ipfsFiles);
+            }).then((files) => {
+
+                files.forEach(file => {
+                    let splited = file.path.split('/');
+                    file.name = splited[splited.length - 1];
+                });
+
+                returnObj.files = JSON.parse(JSON.stringify(files)); // deep copy
+
+                let ipfsMap = {};
+
+                returnObj.files.forEach(file => {
+                    ipfsMap[file.name] = file.hash;
+                    file.ipfs = file.hash;
+                    delete file.hash;
+                    delete file.size;
+                    delete file.path;
+                });
+
                 return new Promise((resolve, reject) => {
                     let size = files.length;
                     let fileInfos = [];
                     let i = 0;
-                    ///
-                    //IPFS
-                    ///
-                    if (!_account) { //不需要存储在本地，没输入合约账户
+                    if (!_account || !_hash) { //不需要存储在本地，没输入合约账户或没输入hash
                         resolve(null);
                     } else {
                         files.forEach(file => {
                             let writestream = gfs.createWriteStream({
-                                filename: file,
+                                filename: file.name,
                                 metadata: {
                                     contractAccount: _account
                                 }
                             });
                             writestream.on('close', function (resultObj) {
-                                let fileInfo = { id: resultObj._id, name: resultObj.filename };
-                                if (resultObj.filename == contractName + ".wasm" || resultObj.filename == contractName + ".wast") {
+                                let fileInfo = { id: resultObj._id, name: resultObj.filename, ipfs: ipfsMap[resultObj.filename] };
+                                if (resultObj.filename == contractName + ".wasm" ||
+                                    resultObj.filename == contractName + ".wast" ||
+                                    resultObj.filename == contractName + ".zip") {
                                     //put to ipfs
-                                    fileInfo.isBinary = true;
+                                    fileInfo.forDisplay = false;
                                 } else {
-                                    fileInfo.isBinary = false;
+                                    fileInfo.forDisplay = true;
                                 }
                                 fileInfos.push(fileInfo);
                                 if (++i == size) {
@@ -203,7 +221,7 @@ app.post('/upload', function (req, res) {
                                 throw reject(error);
                             });
 
-                            fs.createReadStream(contractsDir + '/' + file).pipe(writestream);
+                            fs.createReadStream(file.path).pipe(writestream);
                         });
                     }
                 });
@@ -233,7 +251,7 @@ app.post('/upload', function (req, res) {
         res.json(returnObj);
     }).catch(err => {
         console.error(err);
-        res.status(500).json(err.message);
+        res.status(500).json({ error: err, message: err.message });
     });
 });
 

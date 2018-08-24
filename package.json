@@ -17,6 +17,7 @@
   },
   "homepage": "https://github.com/EOSeco-team/eos-opensource-platform#readme",
   "dependencies": {
+    "bluebird": "^3.5.1",
     "deep-diff": "^1.0.1",
     "eosjs": "^16.0.5",
     "express": "^4.16.3",
